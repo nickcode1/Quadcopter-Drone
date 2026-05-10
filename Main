@@ -1,4 +1,5 @@
 #include <Bluepad32.h>
+#include "data.h"
 
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
 
@@ -64,38 +65,20 @@ void dumpGamepad(ControllerPtr ctl) {
     );
 }
 
-
-void processGamepad(ControllerPtr ctl) {
+GamepadData processGamepad(ControllerPtr ctl) {
     
-    dumpGamepad(ctl);
+    GamepadData data;
 
-    // --- Read stick values ---
+    data.leftY = ctl->axisY();
+    data.leftX = ctl->axisX();
+    data.throttle = ctl->throttle();
+    data.brake = ctl->brake();
+    data.buttons = ctl->buttons();
 
-    int leftY    = ctl->axisY();    // -511 (full forward) to 512 (full back)
-    int leftX    = ctl->axisX();    // -511 (full left) to 512 (full right)
-    int throttle = ctl->throttle(); // (0 - 1023): throttle (AKA gas) button 
-    int brake    = ctl->brake();        // (0 - 1023): brake button
-    int buttons  = ctl->buttons(),      // bitmask of pressed buttons
+    return data;
+
 }
 
-void fly(leftY,leftX,throttle,brake,buttons){
-
-    if throttle
-}
-
-
-void processControllers() {
-    for (auto myController : myControllers) {
-        if (myController && myController->isConnected() && myController->hasData()) {
-            if (myController->isGamepad()) {
-                processGamepad(myController);
-            }
-            else {
-                Serial.println("Unsupported controller");
-            }
-        }
-    }
-}
 
 // PWM config
 const int CH1 = 0;
@@ -123,46 +106,97 @@ const int IN6 = 25;
 const int IN7 = 33;
 const int IN8 = 32;
 
-int leftY;
-int leftX;
-int throttle;
-int brake;
-int buttons;
+int leftspeed;
+int rightspeed;
+int frontspeed;
+int rearspeed;
+int motor_pwm;
+int leftrightbias;
+int frontrearbias;
+
+
 
 // control variables
 
 
-void motorForward(int speed) {   // speed: 0–255
-    ledcWrite(CH1, speed);
+// void Forwards(int rearspeed, int frontspeed) {   // speed: 0–255
+//     ledcWrite(CH1, speed);
+//     ledcWrite(CH2, 0);
+//     ledcWrite(CH3, speed);
+//     ledcWrite(CH4, 0);
+// }
+
+// void Backwards(int rearspeed, int frontspeed) {   // speed: 0–255
+//     ledcWrite(CH1, 0);
+//     ledcWrite(CH2, speed);
+//     ledcWrite(CH3, 0);
+//     ledcWrite(CH4, speed);
+// }
+
+// void roll(int leftspeed, int rightspeed) {
+
+//     //Front Left
+//     ledcWrite(CH1, leftspeed); 
+//     ledcWrite(CH2, 0);        
+    
+//     //Rear Left
+//     ledcWrite(CH3, 0);
+//     ledcWrite(CH4, leftspeed);
+
+//     //Front Right
+//     ledcWrite(CH5, 0);
+//     ledcWrite(CH6, rightspeed);
+
+//     //Rear Right
+//     ledcWrite(CH7, rightspeed);
+//     ledcWrite(CH8, 0);
+// }
+
+// void pitch(int frontspeed, int rearspeed) {
+
+//    //Front Left
+//     ledcWrite(CH1, frontspeed); 
+//     ledcWrite(CH2, 0);        
+    
+//     //Rear Left
+//     ledcWrite(CH3, 0);
+//     ledcWrite(CH4, rearspeed);
+
+//     //Front Right
+//     ledcWrite(CH5, 0);
+//     ledcWrite(CH6, frontspeed);
+
+//     //Rear Right
+//     ledcWrite(CH7, rearspeed);
+//     ledcWrite(CH8, 0);
+// }
+void driveMotors(int leftspeed, int rightspeed, int frontspeed, int rearspeed) {
+    // Each wheel blends its side's left/right speed with its axle's front/rear speed
+    int fl = (leftspeed  + frontspeed) / 2;
+    int rl = (leftspeed  + rearspeed)  / 2;
+    int fr = (rightspeed + frontspeed) / 2;
+    int rr = (rightspeed + rearspeed)  / 2;
+
+    // Front Left
+    ledcWrite(CH1, fl);
     ledcWrite(CH2, 0);
-    ledcWrite(CH3, speed);
-    ledcWrite(CH4, 0);
-}
 
-void motorReverse(int speed) {   // speed: 0–255
-    ledcWrite(CH1, 0);
-    ledcWrite(CH2, speed);
+    // Rear Left
     ledcWrite(CH3, 0);
-    ledcWrite(CH4, speed);
-}
+    ledcWrite(CH4, rl);
 
-void motorBrake() {
-    ledcWrite(CH1, 255);
-    ledcWrite(CH2, 255);
-    ledcWrite(CH3, 255);
-    ledcWrite(CH4, 255);
-}
+    // Front Right
+    ledcWrite(CH5, 0);
+    ledcWrite(CH6, fr);
 
-void motorCoast() {
-    ledcWrite(CH1, 0);
-    ledcWrite(CH2, 0);
-    ledcWrite(CH3, 0);
-    ledcWrite(CH4, 0);
+    // Rear Right
+    ledcWrite(CH7, rr);
+    ledcWrite(CH8, 0);
 }
-
 
 // Arduino setup function. Runs in CPU 1
 void setup() {
+
     Serial.begin(115200);
 
     ledcSetup(CH1, FREQ, RES);
@@ -210,41 +244,73 @@ void setup() {
 
 // Arduino loop function. Runs in CPU 1.
 void loop() {
-    // This call fetches all the controllers' data.
-    // Call this function in your main loop.
-    bool dataUpdated = BP32.update();
-    if (dataUpdated)
-        processControllers();
 
-    Serial.println("Forward - ramping up");
-    for (int s = 0; s <= 255; s += 5) {
-        motorForward(s);
-        delay(30);
+    BP32.update();
+    
+    for (auto myController : myControllers) {
+     
+        if (myController && myController->isConnected() && myController->hasData()) {
+     
+            if (myController->isGamepad()) {
+                
+                GamepadData Controldata = processGamepad(myController);
+
+                motor_pwm     = map(Controldata.throttle,0,1023,0,255);
+                int leftX     = abs(Controldata.leftX);
+                int leftY     = abs(Controldata.leftY);
+                leftrightbias = map(leftX,0,512,0,255);
+                frontrearbias = map(leftY,0,512,0,255);
+              
+                
+                // Serial.printf("Motorpwm");
+                // Serial.printf("%d",motor_pwm);
+                // Serial.print("\n");
+
+                if (Controldata.leftX < 40) {    //Roll Left
+
+                    leftspeed  = motor_pwm*(1.0-(leftrightbias/255.0));
+                    rightspeed = motor_pwm;
+                    
+                }
+
+                 if (Controldata.leftX > 40) {   //Roll Right
+
+                    rightspeed  = motor_pwm*(1.0-(leftrightbias/255.0));
+                    leftspeed = motor_pwm;
+                   
+                }
+
+               if (Controldata.leftY < 40) {    //Pitch Forward
+
+                    frontspeed  = motor_pwm*(1.0-(frontrearbias/255.0));
+                    rearspeed   = motor_pwm;
+                    
+                }
+
+                if (Controldata.leftY > 40) {    //Pitch Backwards
+
+                    rearspeed  = motor_pwm*(1.0-(frontrearbias/255.0));
+                    frontspeed   = motor_pwm;
+
+                }
+
+
+
+                Serial.printf("%d %d %d %d %d\n", leftspeed, rightspeed, frontspeed, rearspeed, motor_pwm);
+                driveMotors(leftspeed, rightspeed, frontspeed, rearspeed);
+                
+
+            }
+        }
     }
-    delay(1000);
-
-    Serial.println("Braking");
-    motorBrake();
-    delay(500);
-
-    Serial.println("Reverse - ramping up");
-    for (int s = 0; s <= 255; s += 5) {
-        motorReverse(s);
-        delay(30);
-    }
-    delay(1000);
-
-    Serial.println("Coast");
-    motorCoast();
-    delay(1000);
-      
-
-    // The main loop must have some kind of "yield to lower priority task" event.
-    // Otherwise, the watchdog will get triggered.
-    // If your main loop doesn't have one, just add a simple `vTaskDelay(1)`.
-    // Detailed info here:
-    // https://stackoverflow.com/questions/66278271/task-watchdog-got-triggered-the-tasks-did-not-reset-the-watchdog-in-time
-
-    //     vTaskDelay(1);
-    delay(150);
 }
+
+
+
+
+
+
+
+
+
+

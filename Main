@@ -1,4 +1,5 @@
 #include <Bluepad32.h>
+#include <ESP32Servo.h>   // CHANGED: added for ESC signal generation
 #include "data.h"
 
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
@@ -80,31 +81,22 @@ GamepadData processGamepad(ControllerPtr ctl) {
 }
 
 
-// PWM config
-const int CH1 = 0;
-const int CH2 = 1;
-const int CH3 = 2;
-const int CH4 = 3;
-const int CH5 = 4;
-const int CH6 = 5;
-const int CH7 = 6;
-const int CH8 = 7;
+// ---- CHANGED FOR ESC CONTROL: was 8 LEDC duty-cycle channels (2 per wheel, H-bridge style) ----
+// Now 4 servo-style ESC signals, one per motor.
+Servo esc_FL;
+Servo esc_RL;
+Servo esc_FR;
+Servo esc_RR;
 
-const int FREQ = 5000;   // 5 kHz
-const int RES  = 8;      // 8-bit: 0–255
+const int ESC_MIN_US = 1000;   // zero throttle / arm value
+const int ESC_MAX_US = 2000;   // full throttle
 
-//Pin Outs
-const int IN1 = 13;
-const int IN2 = 12;
-
-const int IN3 = 14;
-const int IN4 = 27;
-
-const int IN5 = 26;
-const int IN6 = 25;
-
-const int IN7 = 33;
-const int IN8 = 32;
+//Pin Outs (one signal pin per motor now — reverse-direction pins no longer needed)
+const int IN1 = 13;   // Front Left  ESC signal
+const int IN3 = 14;   // Rear Left   ESC signal
+const int IN5 = 26;   // Front Right ESC signal
+const int IN7 = 33;   // Rear Right  ESC signal
+// ---- END CHANGED ----
 
 int leftspeed;
 int rightspeed;
@@ -177,21 +169,12 @@ void driveMotors(int leftspeed, int rightspeed, int frontspeed, int rearspeed) {
     int fr = (rightspeed + frontspeed) / 2;
     int rr = (rightspeed + rearspeed)  / 2;
 
-    // Front Left
-    ledcWrite(CH1, fl);
-    ledcWrite(CH2, 0);
-
-    // Rear Left
-    ledcWrite(CH3, 0);
-    ledcWrite(CH4, rl);
-
-    // Front Right
-    ledcWrite(CH5, 0);
-    ledcWrite(CH6, fr);
-
-    // Rear Right
-    ledcWrite(CH7, rr);
-    ledcWrite(CH8, 0);
+    // ---- CHANGED FOR ESC CONTROL: map 0-255 speed to a 1000-2000us ESC pulse ----
+    esc_FL.writeMicroseconds(map(fl, 0, 255, ESC_MIN_US, ESC_MAX_US));
+    esc_RL.writeMicroseconds(map(rl, 0, 255, ESC_MIN_US, ESC_MAX_US));
+    esc_FR.writeMicroseconds(map(fr, 0, 255, ESC_MIN_US, ESC_MAX_US));
+    esc_RR.writeMicroseconds(map(rr, 0, 255, ESC_MIN_US, ESC_MAX_US));
+    // ---- END CHANGED ----
 }
 
 // Arduino setup function. Runs in CPU 1
@@ -199,23 +182,31 @@ void setup() {
 
     Serial.begin(115200);
 
-    ledcSetup(CH1, FREQ, RES);
-    ledcSetup(CH2, FREQ, RES);
-    ledcSetup(CH3, FREQ, RES);
-    ledcSetup(CH4, FREQ, RES);
-    ledcSetup(CH5, FREQ, RES);
-    ledcSetup(CH6, FREQ, RES);
-    ledcSetup(CH7, FREQ, RES);
-    ledcSetup(CH8, FREQ, RES);
-    
-    ledcAttachPin(IN1, CH1);
-    ledcAttachPin(IN2, CH2);
-    ledcAttachPin(IN3, CH3);
-    ledcAttachPin(IN4, CH4);
-    ledcAttachPin(IN5, CH5);
-    ledcAttachPin(IN6, CH6);
-    ledcAttachPin(IN7, CH7);
-    ledcAttachPin(IN8, CH8);
+    // ---- CHANGED FOR ESC CONTROL: replaced ledcSetup/ledcAttachPin block ----
+    ESP32PWM::allocateTimer(0);
+    ESP32PWM::allocateTimer(1);
+    ESP32PWM::allocateTimer(2);
+    ESP32PWM::allocateTimer(3);
+
+    esc_FL.setPeriodHertz(50);
+    esc_RL.setPeriodHertz(50);
+    esc_FR.setPeriodHertz(50);
+    esc_RR.setPeriodHertz(50);
+
+    esc_FL.attach(IN1, ESC_MIN_US, ESC_MAX_US);
+    esc_RL.attach(IN3, ESC_MIN_US, ESC_MAX_US);
+    esc_FR.attach(IN5, ESC_MIN_US, ESC_MAX_US);
+    esc_RR.attach(IN7, ESC_MIN_US, ESC_MAX_US);
+
+    // Send the arm signal before ESC power is connected / before throttle is used
+    esc_FL.writeMicroseconds(ESC_MIN_US);
+    esc_RL.writeMicroseconds(ESC_MIN_US);
+    esc_FR.writeMicroseconds(ESC_MIN_US);
+    esc_RR.writeMicroseconds(ESC_MIN_US);
+    Serial.println("Sending arm signal to all 4 ESCs. Connect ESC/battery power now.");
+    delay(3000);
+    Serial.println("Armed.");
+    // ---- END CHANGED ----
 
 
 
@@ -304,13 +295,3 @@ void loop() {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-

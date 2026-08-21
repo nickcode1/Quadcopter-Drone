@@ -144,6 +144,11 @@ void setup() {
     frontRight.attach(IN3);
     rearRight.attach(IN4);
 
+    frontLeft.setPeriodHertz(50);
+    rearLeft.setPeriodHertz(50);
+    frontRight.setPeriodHertz(50);
+    rearRight.setPeriodHertz(50);
+
     // Send arming signal
     frontLeft.writeMicroseconds(1000);
     rearLeft.writeMicroseconds(1000);

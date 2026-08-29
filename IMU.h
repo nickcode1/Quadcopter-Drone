@@ -3,47 +3,49 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <MPU9250.h>
+#include <MPU6500_WE.h> 
 
-class IMU
-{
+class IMU {
 public:
+    MPU6500_WE mpu = MPU6500_WE(0x68);
 
-    MPU9250 mpu;
+    bool begin() {
+        Wire.begin(21, 22); 
+        delay(100);
 
-   bool begin()
-    {
-    Wire.begin(21, 22);  // SDA, SCL
-    delay(100);
+        if (!mpu.init()) {
+            return false;
+        }
 
-    mpu.verbose(true);   // <-- add this line temporarily
-
-    MPU9250Setting setting;
-    setting.accel_fs_sel     = ACCEL_FS_SEL::A4G;
-    setting.gyro_fs_sel      = GYRO_FS_SEL::G500DPS;
-    setting.gyro_dlpf_cfg    = GYRO_DLPF_CFG::DLPF_41HZ;
-    setting.accel_dlpf_cfg   = ACCEL_DLPF_CFG::DLPF_45HZ;
-    setting.fifo_sample_rate = FIFO_SAMPLE_RATE::SMPL_1000HZ;
-
-    return mpu.setup(0x68, setting);
+        // Calibrate offsets and apply your previous configuration ranges
+        mpu.autoOffsets();
+        mpu.setAccRange(MPU6500_ACC_RANGE_4G);
+        mpu.setGyrRange(MPU6500_GYRO_RANGE_500);
+        
+        // Enable Digital Low Pass Filter (~41Hz)
+        mpu.enableGyrDLPF();
+        mpu.setGyrDLPF(MPU6500_DLPF_3); 
+        
+        return true;
     }
 
-    bool update()
-    {
-        return mpu.update();
+    bool update() {
+        // Data is fetched on demand by the get functions below
+        return true; 
     }
 
-    float getAccX() { return mpu.getAccX(); }
-    float getAccY() { return mpu.getAccY(); }
-    float getAccZ() { return mpu.getAccZ(); }
+    float getAccX() { return mpu.getGValues().x; }
+    float getAccY() { return mpu.getGValues().y; }
+    float getAccZ() { return mpu.getGValues().z; }
 
-    float getGyroX() { return mpu.getGyroX(); }
-    float getGyroY() { return mpu.getGyroY(); }
-    float getGyroZ() { return mpu.getGyroZ(); }
+    float getGyroX() { return mpu.getGyrValues().x; }
+    float getGyroY() { return mpu.getGyrValues().y; }
+    float getGyroZ() { return mpu.getGyrValues().z; }
 
-    float getMagX() { return mpu.getMagX(); }
-    float getMagY() { return mpu.getMagY(); }
-    float getMagZ() { return mpu.getMagZ(); }
+    // Stubbed magnetometer functions to prevent breaking references in main_v2.ino
+    float getMagX() { return 0.0f; }
+    float getMagY() { return 0.0f; }
+    float getMagZ() { return 0.0f; }
 };
 
 #endif

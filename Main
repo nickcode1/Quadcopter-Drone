@@ -1,6 +1,9 @@
 #include <Bluepad32.h>
 #include "data.h"
 #include <ESP32Servo.h>
+#include "IMU.h"
+
+IMU imu;
 
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
 
@@ -139,6 +142,11 @@ void setup() {
 
     Serial.begin(115200);
 
+    if (!imu.begin()) {
+        Serial.println("IMU init failed!");
+        while (1) { delay(1000); }
+    }
+
     frontLeft.attach(IN1);
     rearLeft.attach(IN2);
     frontRight.attach(IN3);
@@ -185,7 +193,15 @@ void setup() {
 void loop() {
 
     BP32.update();
+    imu.update();
     
+    float ax = imu.getAccX();
+    float ay = imu.getAccY();
+    float az = imu.getAccZ();
+    float gx = imu.getGyroX();
+    float gy = imu.getGyroY();
+    float gz = imu.getGyroZ();
+
     for (auto myController : myControllers) {
      
         if (myController && myController->isConnected() && myController->hasData()) {
@@ -235,12 +251,24 @@ void loop() {
 
 
 
-                Serial.printf("%d %d %d %d %d %d %d\n", leftspeed, rightspeed, frontspeed, rearspeed, motor_pwm,Controldata.leftX,leftrightbias);
-                driveMotors(leftspeed, rightspeed, frontspeed, rearspeed);
+                
             
                 
 
             }
+
+           
         }
     }
+
+    Serial.print("Accel: ");
+    Serial.print(ax); Serial.print(", ");
+    Serial.print(ay); Serial.print(", ");
+    Serial.print(az);
+    Serial.print(" | Gyro: ");
+    Serial.print(gx); Serial.print(", ");
+    Serial.print(gy); Serial.print(", ");
+    Serial.println(gz);
+    
+    driveMotors(leftspeed, rightspeed, frontspeed, rearspeed);
 }

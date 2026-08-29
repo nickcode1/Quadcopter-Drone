@@ -195,8 +195,8 @@ void loop() {
     BP32.update();
     imu.update();
     
-    float ax = imu.getAccX();
-    float ay = imu.getAccY();
+    float aroll = imu.getAccX();
+    float apitch = imu.getAccY();
     float az = imu.getAccZ();
     float gx = imu.getGyroX();
     float gy = imu.getGyroY();
@@ -217,10 +217,7 @@ void loop() {
                 frontrearbias = map(leftY,0,512,1000,2000);
               
                 
-                // Serial.printf("Motorpwm");
-                // Serial.printf("%d",motor_pwm);
-                // Serial.print("\n");
-
+        
                 if (Controldata.leftX < 40) {    //Roll Left
 
                     leftspeed = motor_pwm - (motor_pwm - 1000) * (leftrightbias - 1000) / 1000;
@@ -247,13 +244,7 @@ void loop() {
                     rearspeed = motor_pwm - (motor_pwm - 1000) * (frontrearbias - 1000) / 1000;
                     frontspeed = motor_pwm;
 
-                }
-
-
-
-                
-            
-                
+                }  
 
             }
 

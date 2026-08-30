@@ -121,6 +121,32 @@ Servo rearLeft;
 Servo frontRight;
 Servo rearRight;
 
+// ---- PID stabilization additions ----
+struct PID {
+  float kp, ki, kd;
+  float integral;
+  float prevMeasurement;
+  float integralLimit;
+
+  float update(float setpoint, float measurement, float dt) {
+    float error = setpoint - measurement;
+    integral = constrain(integral + error * dt, -integralLimit, integralLimit);
+    float derivative = -(measurement - prevMeasurement) / dt;  // derivative-on-measurement
+    prevMeasurement = measurement;
+    return kp * error + ki * integral + kd * derivative;
+  }
+};
+
+PID rollPID  = {5.0, 0.0, 0.0, 0, 0, 50};   // kp-only to start; tune kp, then kd, then ki
+PID pitchPID = {5.0, 0.0, 0.0, 0, 0, 50};
+
+float rollAngle = 0, pitchAngle = 0;
+unsigned long lastLoopTime = 0;
+
+const float MAX_TILT_DEG = 25.0;      // full stick deflection = this many degrees commanded
+const float ACC_FILTER_ALPHA = 0.98;  // complementary filter weight toward gyro
+// ---- end PID additions ----
+
 
 void driveMotors(int leftspeed, int rightspeed, int frontspeed, int rearspeed) {
     // Each wheel blends its side's left/right speed with its axle's front/rear speed
@@ -194,13 +220,25 @@ void loop() {
 
     BP32.update();
     imu.update();
-    
-    float aroll = imu.getAccX();
+
+    float aroll  = imu.getAccX();   // raw accel
     float apitch = imu.getAccY();
-    float az = imu.getAccZ();
-    float gx = imu.getGyroX();
-    float gy = imu.getGyroY();
-    float gz = imu.getGyroZ();
+    float az     = imu.getAccZ();
+    float gx     = imu.getGyroX();  // confirm this is deg/s in IMU.h
+    float gy     = imu.getGyroY();
+    float gz     = imu.getGyroZ();
+
+    unsigned long now = micros();
+    float dt = (lastLoopTime == 0) ? 0.004f : (now - lastLoopTime) / 1000000.0f;
+    lastLoopTime = now;
+
+    // accel-only angle estimate -- adjust signs once you confirm mounting orientation
+    float accRollAngle  = atan2(apitch, az) * 180.0 / PI;
+    float accPitchAngle = atan2(-aroll, sqrt(apitch * apitch + az * az)) * 180.0 / PI;
+
+    // complementary filter: trust integrated gyro short-term, accel corrects long-term drift
+    rollAngle  = ACC_FILTER_ALPHA * (rollAngle  + gx * dt) + (1 - ACC_FILTER_ALPHA) * accRollAngle;
+    pitchAngle = ACC_FILTER_ALPHA * (pitchAngle + gy * dt) + (1 - ACC_FILTER_ALPHA) * accPitchAngle;
 
     for (auto myController : myControllers) {
      
@@ -210,41 +248,21 @@ void loop() {
                 
                 GamepadData Controldata = processGamepad(myController);
 
-                motor_pwm     = map(Controldata.throttle,0,1023,1000,2000);
-                int leftX     = abs(Controldata.leftX);
-                int leftY     = abs(Controldata.leftY);
-                leftrightbias = map(leftX,0,512,1000,2000);
-                frontrearbias = map(leftY,0,512,1000,2000);
-              
-                
-        
-                if (Controldata.leftX < 40) {    //Roll Left
+                motor_pwm = map(Controldata.throttle, 0, 1023, 1000, 2000);
 
-                    leftspeed = motor_pwm - (motor_pwm - 1000) * (leftrightbias - 1000) / 1000;
-                    rightspeed = motor_pwm;
-                    
-                }
+                float desiredRoll  = (Controldata.leftX / 512.0f) * MAX_TILT_DEG;
+                float desiredPitch = (Controldata.leftY / 512.0f) * MAX_TILT_DEG;
 
-                 if (Controldata.leftX > 40) {   //Roll Right
+                float rollCorrection  = rollPID.update(desiredRoll,  rollAngle,  dt);
+                float pitchCorrection = pitchPID.update(desiredPitch, pitchAngle, dt);
 
-                    rightspeed = motor_pwm - (motor_pwm - 1000) * (leftrightbias - 1000) / 1000;
-                    leftspeed = motor_pwm;
-                   
-                }
-
-               if (Controldata.leftY < 40) {    //Pitch Forward
-
-                   frontspeed = motor_pwm - (motor_pwm - 1000) * (frontrearbias - 1000) / 1000;
-                   rearspeed   = motor_pwm;
-                    
-                }
-
-                if (Controldata.leftY > 40) {    //Pitch Backwards
-
-                    rearspeed = motor_pwm - (motor_pwm - 1000) * (frontrearbias - 1000) / 1000;
-                    frontspeed = motor_pwm;
-
-                }  
+                // signs assume: stick-left -> roll left -> left motors slow down
+                // (matches the original threshold logic). Flip signs here if it rolls
+                // the wrong way during the props-off bench check.
+                leftspeed  = constrain((int)(motor_pwm + rollCorrection),  1000, 2000);
+                rightspeed = constrain((int)(motor_pwm - rollCorrection),  1000, 2000);
+                frontspeed = constrain((int)(motor_pwm + pitchCorrection), 1000, 2000);
+                rearspeed  = constrain((int)(motor_pwm - pitchCorrection), 1000, 2000);
 
             }
 
@@ -252,10 +270,9 @@ void loop() {
         }
     }
 
-    Serial.print("Accel: ");
-    Serial.print(ax); Serial.print(", ");
-    Serial.print(ay); Serial.print(", ");
-    Serial.print(az);
+    Serial.print("Angle roll/pitch: ");
+    Serial.print(rollAngle); Serial.print(", ");
+    Serial.print(pitchAngle);
     Serial.print(" | Gyro: ");
     Serial.print(gx); Serial.print(", ");
     Serial.print(gy); Serial.print(", ");
